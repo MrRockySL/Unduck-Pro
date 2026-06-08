@@ -57,9 +57,7 @@ No subscriptions. No paywall. No account. Just download it and it works.
 ## Everything in one little panel
 
 <p align="center">
-  <img src="screenshots/levels.png" width="330" alt="Unduck Pro mixer — call status, output switcher, and per-app volume">
-  &nbsp;&nbsp;
-  <img src="screenshots/settings.png" width="330" alt="Unduck Pro settings — launch at login, updates, report a problem, reset">
+  <img src="screenshots/panels.png" width="720" alt="Unduck Pro — the mixer (LEVELS) and the Settings page, side by side">
 </p>
 
 ---
