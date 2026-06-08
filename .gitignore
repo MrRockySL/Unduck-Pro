@@ -1,0 +1,29 @@
+# Build artifacts
+.build/
+dist/
+DerivedData/
+*.app
+*.dmg
+*.o
+*.swiftmodule
+*.xcuserstate
+
+# macOS
+.DS_Store
+
+# Local logs / temp
+*.log
+
+# Local working notes & scratch — not part of the project
+NEXT_SESSION.md
+final.md
+RESEARCH.md
+PLAN.md
+PERAPP_PLAN.md
+DESIGN_PROMPTS.md
+docs/
+Deisgn/
+Duck Audio.command
+
+# Stray screenshots dropped in the project root
+/*.png
