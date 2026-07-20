@@ -24,6 +24,17 @@ public enum CallState: Equatable, Sendable {
             return Set(processes.map(\.objectID))
         }
     }
+
+    /// Logical call-app families currently using input. Helpers that only play
+    /// the remote caller can be associated with the same mixer row through this.
+    public var activeFamilies: Set<String> {
+        switch self {
+        case .noCall:
+            return []
+        case .inCall(let processes):
+            return Set(processes.map(\.matchedFamily))
+        }
+    }
 }
 
 /// One lightweight Core Audio process snapshot used for background engine
@@ -32,10 +43,16 @@ public enum CallState: Equatable, Sendable {
 public struct AudioActivitySnapshot: Equatable, Sendable {
     public let callState: CallState
     public let outputObjectIDs: Set<AudioObjectID>
+    public let outputDeviceID: AudioObjectID
 
-    public init(callState: CallState, outputObjectIDs: Set<AudioObjectID>) {
+    public init(
+        callState: CallState,
+        outputObjectIDs: Set<AudioObjectID>,
+        outputDeviceID: AudioObjectID = kAudioObjectUnknown
+    ) {
         self.callState = callState
         self.outputObjectIDs = outputObjectIDs
+        self.outputDeviceID = outputDeviceID
     }
 }
 
@@ -45,12 +62,20 @@ public struct CallProcessInfo: Equatable, Sendable {
     public let pid: pid_t?
     public let bundleID: String?
     public let matchedName: String
+    public let matchedFamily: String
 
-    public init(objectID: AudioObjectID, pid: pid_t?, bundleID: String?, matchedName: String) {
+    public init(
+        objectID: AudioObjectID,
+        pid: pid_t?,
+        bundleID: String?,
+        matchedName: String,
+        matchedFamily: String? = nil
+    ) {
         self.objectID = objectID
         self.pid = pid
         self.bundleID = bundleID
         self.matchedName = matchedName
+        self.matchedFamily = matchedFamily ?? matchedName.lowercased()
     }
 }
 
@@ -74,6 +99,7 @@ public final class CallWatcher: @unchecked Sendable {
     private let lock = NSLock()
     private var _currentState: CallState = .noCall
     private var _currentOutputObjectIDs: Set<AudioObjectID> = []
+    private var _currentOutputDeviceID: AudioObjectID = kAudioObjectUnknown
     private var _previousExcludedIDs: Set<AudioObjectID> = []
     private var timer: DispatchSourceTimer?
     private let queue = DispatchQueue(label: "dev.mrrockysl.duckaudio.callwatcher", qos: .utility)
@@ -95,6 +121,11 @@ public final class CallWatcher: @unchecked Sendable {
     /// Output-producing process IDs from the last successful scan. Thread-safe.
     public var currentOutputObjectIDs: Set<AudioObjectID> {
         lock.withLock { _currentOutputObjectIDs }
+    }
+
+    /// Default hardware output from the last successful scan. Thread-safe.
+    public var currentOutputDeviceID: AudioObjectID {
+        lock.withLock { _currentOutputDeviceID }
     }
 
     /// Start polling. Performs an immediate first poll.
@@ -135,27 +166,35 @@ public final class CallWatcher: @unchecked Sendable {
         // Preserve the last good snapshot and try again on the next timer tick.
         guard let processes = try? AudioProcessProbe.allProcesses() else { return }
         let selfObjectID = (try? AudioProcessProbe.currentProcessObjectID()) ?? kAudioObjectUnknown
-        let snapshot = Self.makeSnapshot(processes: processes, selfObjectID: selfObjectID)
+        let previousDeviceID = lock.withLock { _currentOutputDeviceID }
+        let outputDeviceID = (try? AudioDeviceProbe.defaultOutputDeviceID()) ?? previousDeviceID
+        let snapshot = Self.makeSnapshot(
+            processes: processes,
+            selfObjectID: selfObjectID,
+            outputDeviceID: outputDeviceID
+        )
         let newState = snapshot.callState
 
-        let (changed, exclusionSetChanged, outputsChanged) = lock.withLock { () -> (Bool, Bool, Bool) in
+        let (changed, exclusionSetChanged, outputsChanged, deviceChanged) = lock.withLock { () -> (Bool, Bool, Bool, Bool) in
             let oldState = _currentState
             let newExcludedIDs = newState.excludedObjectIDs
 
             let stateChanged = oldState != newState
             let exclusionChanged = newExcludedIDs != _previousExcludedIDs
             let outputChanged = snapshot.outputObjectIDs != _currentOutputObjectIDs
+            let outputDeviceChanged = snapshot.outputDeviceID != _currentOutputDeviceID
 
-            if stateChanged || exclusionChanged || outputChanged {
+            if stateChanged || exclusionChanged || outputChanged || outputDeviceChanged {
                 _currentState = newState
                 _previousExcludedIDs = newExcludedIDs
                 _currentOutputObjectIDs = snapshot.outputObjectIDs
+                _currentOutputDeviceID = snapshot.outputDeviceID
             }
 
-            return (stateChanged, exclusionChanged, outputChanged)
+            return (stateChanged, exclusionChanged, outputChanged, outputDeviceChanged)
         }
 
-        if changed || exclusionSetChanged || outputsChanged {
+        if changed || exclusionSetChanged || outputsChanged || deviceChanged {
             delegate?.callWatcher(self, didChangeState: newState, exclusionSetChanged: exclusionSetChanged)
         }
     }
@@ -164,7 +203,8 @@ public final class CallWatcher: @unchecked Sendable {
     /// Public so the deterministic filtering can be covered by the self-test.
     public static func makeSnapshot(
         processes: [AudioProcessInfo],
-        selfObjectID: AudioObjectID
+        selfObjectID: AudioObjectID,
+        outputDeviceID: AudioObjectID = kAudioObjectUnknown
     ) -> AudioActivitySnapshot {
         let callProcesses = processes.filter { $0.isRunningInput && $0.callMatch != nil }
         let infos = callProcesses.map { process in
@@ -172,7 +212,8 @@ public final class CallWatcher: @unchecked Sendable {
                 objectID: process.objectID,
                 pid: process.pid,
                 bundleID: process.bundleID,
-                matchedName: process.callMatch?.name ?? "unknown"
+                matchedName: process.callMatch?.name ?? "unknown",
+                matchedFamily: process.callMatch?.family ?? "unknown"
             )
         }
         let callState: CallState = infos.isEmpty ? .noCall : .inCall(processes: infos)
@@ -182,6 +223,10 @@ public final class CallWatcher: @unchecked Sendable {
                   process.processName != nil || process.bundleID != nil else { return nil }
             return process.objectID
         })
-        return AudioActivitySnapshot(callState: callState, outputObjectIDs: outputs)
+        return AudioActivitySnapshot(
+            callState: callState,
+            outputObjectIDs: outputs,
+            outputDeviceID: outputDeviceID
+        )
     }
 }

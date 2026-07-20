@@ -12,7 +12,7 @@ struct MixerApp: Identifiable {
     let icon: NSImage?
     let isFavorite: Bool
     let isActive: Bool             // currently producing audio
-    var volume: Double             // 0…1.5
+    var volume: Double             // slider position, 0…1
     var muted: Bool
     let processObjectIDs: [AudioObjectID]   // its currently-playing processes
 }
@@ -70,6 +70,7 @@ final class EngineManager: ObservableObject, CallWatcherDelegate {
 
     private var lastTapSet: Set<AudioObjectID> = []
     private var lastCallSet: Set<AudioObjectID> = []
+    private var lastEngineOutputDeviceID: AudioObjectID = kAudioObjectUnknown
     private var isStarting = false
     private var menuVisible = false
     private var runningAppsTickCounter = 0
@@ -104,6 +105,7 @@ final class EngineManager: ObservableObject, CallWatcherDelegate {
                 self.callWatcher.delegate = self
                 self.callWatcher.start()
                 self.engine.excludedCallIDs = self.callWatcher.currentState.excludedObjectIDs
+                self.engine.activeCallFamilies = self.callWatcher.currentState.activeFamilies
                 do {
                     try self.engine.start()
                 } catch {
@@ -117,8 +119,19 @@ final class EngineManager: ObservableObject, CallWatcherDelegate {
                 Task { @MainActor in
                     self.isStarting = false
                     self.lastCallSet = self.engine.excludedCallIDs
-                    self.lastTapSet = self.callWatcher.currentOutputObjectIDs
+                    self.lastTapSet = Set(self.engine.tappedApps.map(\.processObjectID))
+                    self.lastEngineOutputDeviceID = self.callWatcher.currentOutputDeviceID
                     self.isRunning = true
+                    // Apply remembered slider positions through the perceptual
+                    // curve before the user first opens or touches a row.
+                    self.reapplyGains()
+                    // Reconcile immediately in case one process was still starting
+                    // while the first set of independent taps was created.
+                    self.reconcileAudioState(
+                        self.callWatcher.currentState,
+                        outputIDs: self.callWatcher.currentOutputObjectIDs,
+                        outputDeviceID: self.callWatcher.currentOutputDeviceID
+                    )
                     // Only spin up the polling timer + first refresh if the panel
                     // is actually open; otherwise the engine just runs quietly.
                     if self.menuVisible { self.tick(); self.startUITimer() }
@@ -176,22 +189,36 @@ final class EngineManager: ObservableObject, CallWatcherDelegate {
     nonisolated func callWatcher(_ watcher: CallWatcher, didChangeState newState: CallState,
                                  exclusionSetChanged: Bool) {
         let outputIDs = watcher.currentOutputObjectIDs
-        Task { @MainActor in self.reconcileAudioState(newState, outputIDs: outputIDs) }
+        let outputDeviceID = watcher.currentOutputDeviceID
+        Task { @MainActor in
+            self.reconcileAudioState(
+                newState,
+                outputIDs: outputIDs,
+                outputDeviceID: outputDeviceID
+            )
+        }
     }
 
-    private func reconcileAudioState(_ state: CallState, outputIDs: Set<AudioObjectID>) {
+    private func reconcileAudioState(
+        _ state: CallState,
+        outputIDs: Set<AudioObjectID>,
+        outputDeviceID: AudioObjectID
+    ) {
         guard isRunning else { return }
         isInCall = state.isInCall
         let callSet = state.excludedObjectIDs
         let outputsChanged = outputIDs != lastTapSet
         let callsChanged = callSet != lastCallSet
-        guard outputsChanged || callsChanged else { return }
+        let deviceChanged = outputDeviceID != lastEngineOutputDeviceID
+        guard outputsChanged || callsChanged || deviceChanged else { return }
 
         engine.excludedCallIDs = callSet
+        engine.activeCallFamilies = state.activeFamilies
         do {
             try engine.rebuild()
             lastTapSet = outputIDs
             lastCallSet = callSet
+            lastEngineOutputDeviceID = outputDeviceID
             rebuildRetryTask?.cancel(); rebuildRetryTask = nil
             reapplyGains()
             print("[engine] taps refreshed: outputs=\(outputIDs.count) calls=\(callSet.count)")
@@ -211,7 +238,8 @@ final class EngineManager: ObservableObject, CallWatcherDelegate {
             self.rebuildRetryTask = nil
             self.reconcileAudioState(
                 self.callWatcher.currentState,
-                outputIDs: self.callWatcher.currentOutputObjectIDs
+                outputIDs: self.callWatcher.currentOutputObjectIDs,
+                outputDeviceID: self.callWatcher.currentOutputDeviceID
             )
         }
     }
@@ -221,7 +249,8 @@ final class EngineManager: ObservableObject, CallWatcherDelegate {
     func setVolume(_ v: Double, for app: MixerApp) {
         volumes[app.id] = v
         UserDefaults.standard.set(volumes, forKey: volKey)   // remembered, applied when it next plays
-        for pid in app.processObjectIDs { engine.setGain(Float(v), forProcess: pid) }
+        let gain = PerAppVolumeCurve.gain(forSliderValue: v)
+        for pid in app.processObjectIDs { engine.setGain(gain, forProcess: pid) }
         if let i = apps.firstIndex(where: { $0.id == app.id }) { apps[i].volume = v }
     }
 
@@ -372,8 +401,9 @@ final class EngineManager: ObservableObject, CallWatcherDelegate {
         for (key, info) in groupActiveApps() {
             let v = volumes[key] ?? 1.0
             let m = mutes[key] ?? false
+            let gain = PerAppVolumeCurve.gain(forSliderValue: v)
             for pid in info.processIDs {
-                engine.setGain(Float(v), forProcess: pid)
+                engine.setGain(gain, forProcess: pid)
                 engine.setMuted(m, forProcess: pid)
             }
         }

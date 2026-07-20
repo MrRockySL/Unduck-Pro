@@ -37,17 +37,24 @@ public struct AudioProcessInfo: Equatable, Sendable {
 public struct KnownCallApp: Equatable, Sendable {
     public let name: String
     public let bundleIDNeedle: String
+    public let family: String
+
+    public init(name: String, bundleIDNeedle: String, family: String) {
+        self.name = name
+        self.bundleIDNeedle = bundleIDNeedle
+        self.family = family
+    }
 
     public static let knownApps: [KnownCallApp] = [
-        KnownCallApp(name: "FaceTime", bundleIDNeedle: "com.apple.FaceTime"),
-        KnownCallApp(name: "FaceTime audio service", bundleIDNeedle: "avconferenced"),
-        KnownCallApp(name: "Zoom", bundleIDNeedle: "zoom"),
-        KnownCallApp(name: "Microsoft Teams", bundleIDNeedle: "teams"),
-        KnownCallApp(name: "Webex", bundleIDNeedle: "webex"),
-        KnownCallApp(name: "Discord", bundleIDNeedle: "discord"),
-        KnownCallApp(name: "Slack", bundleIDNeedle: "slack"),
-        KnownCallApp(name: "Google Chrome / Meet", bundleIDNeedle: "com.google.Chrome"),
-        KnownCallApp(name: "Safari / Meet", bundleIDNeedle: "com.apple.Safari")
+        KnownCallApp(name: "FaceTime", bundleIDNeedle: "com.apple.FaceTime", family: "facetime"),
+        KnownCallApp(name: "FaceTime audio service", bundleIDNeedle: "avconferenced", family: "facetime"),
+        KnownCallApp(name: "Zoom", bundleIDNeedle: "zoom", family: "zoom"),
+        KnownCallApp(name: "Microsoft Teams", bundleIDNeedle: "teams", family: "teams"),
+        KnownCallApp(name: "Webex", bundleIDNeedle: "webex", family: "webex"),
+        KnownCallApp(name: "Discord", bundleIDNeedle: "discord", family: "discord"),
+        KnownCallApp(name: "Slack", bundleIDNeedle: "slack", family: "slack"),
+        KnownCallApp(name: "Google Chrome / Meet", bundleIDNeedle: "com.google.Chrome", family: "chrome"),
+        KnownCallApp(name: "Safari / Meet", bundleIDNeedle: "com.apple.Safari", family: "safari")
     ]
 
     public static func match(bundleID: String?, processName: String?) -> KnownCallApp? {

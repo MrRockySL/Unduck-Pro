@@ -19,6 +19,18 @@ struct DuckAudioSelfTest {
             failures: &failures
         )
 
+        expect(PerAppVolumeCurve.gain(forSliderValue: 1) == 1,
+               "per-app volume keeps 100 percent at unity", failures: &failures)
+        expect(abs(PerAppVolumeCurve.gain(forSliderValue: 0.6) - 0.36) < 0.0001,
+               "per-app volume makes 60 percent audibly distinct", failures: &failures)
+        expect(abs(PerAppVolumeCurve.gain(forSliderValue: 0.3) - 0.09) < 0.0001,
+               "per-app volume distributes control through the lower range", failures: &failures)
+        expect(PerAppVolumeCurve.gain(forSliderValue: 0) == 0,
+               "per-app volume makes zero exactly silent", failures: &failures)
+        expect(PerAppVolumeCurve.gain(forSliderValue: -1) == 0
+                && PerAppVolumeCurve.gain(forSliderValue: 2) == 1,
+               "per-app volume clamps values to slider bounds", failures: &failures)
+
         var cappedStage = SafeGainStage(
             config: SafeGainConfig(
                 maxGain: 4,
@@ -106,6 +118,15 @@ struct DuckAudioSelfTest {
         expect(inCall.isInCall, "inCall.isInCall is true", failures: &failures)
         expect(inCall.excludedObjectIDs == Set([42, 99]), "inCall excludes correct IDs", failures: &failures)
 
+        let familyCall = CallState.inCall(processes: [
+            CallProcessInfo(objectID: 42, pid: 123, bundleID: "com.apple.FaceTime",
+                            matchedName: "FaceTime", matchedFamily: "facetime"),
+            CallProcessInfo(objectID: 99, pid: 456, bundleID: "avconferenced",
+                            matchedName: "FaceTime audio service", matchedFamily: "facetime")
+        ])
+        expect(familyCall.activeFamilies == Set(["facetime"]),
+               "FaceTime UI and audio helper share one call family", failures: &failures)
+
         // CallState equality
         let inCall2 = CallState.inCall(processes: [proc1, proc2])
         expect(inCall == inCall2, "identical inCall states are equal", failures: &failures)
@@ -131,12 +152,29 @@ struct DuckAudioSelfTest {
                              processName: nil, isRunning: true,
                              isRunningInput: false, isRunningOutput: true)
         ]
-        let activity = CallWatcher.makeSnapshot(processes: activityProcesses, selfObjectID: 10)
+        let activity = CallWatcher.makeSnapshot(
+            processes: activityProcesses,
+            selfObjectID: 10,
+            outputDeviceID: 501
+        )
         expect(activity.callState.isInCall, "activity snapshot detects live call input", failures: &failures)
         expect(activity.callState.excludedObjectIDs == Set([42]),
                "activity snapshot identifies call process", failures: &failures)
         expect(activity.outputObjectIDs == Set([42, 77]),
                "activity snapshot tracks output apps and excludes self/background daemons", failures: &failures)
+        expect(activity.outputDeviceID == 501,
+               "activity snapshot tracks the default output device", failures: &failures)
+
+        // Aggregate devices may prepend hardware input streams before tap
+        // streams. The process tap must map from the trailing input buffers.
+        expect(PerAppBufferRouting.inputIndex(inputBufferCount: 3, outputBufferCount: 1, outputIndex: 0) == 2,
+               "single process tap uses the trailing aggregate input", failures: &failures)
+        expect(PerAppBufferRouting.inputIndex(inputBufferCount: 4, outputBufferCount: 2, outputIndex: 0) == 2,
+               "first output maps to first trailing tap stream", failures: &failures)
+        expect(PerAppBufferRouting.inputIndex(inputBufferCount: 4, outputBufferCount: 2, outputIndex: 1) == 3,
+               "second output maps to second trailing tap stream", failures: &failures)
+        expect(PerAppBufferRouting.inputIndex(inputBufferCount: 1, outputBufferCount: 2, outputIndex: 1) == nil,
+               "missing aggregate input maps to silence", failures: &failures)
 
         // TapEngineConfiguration defaults
         let defaultConfig = TapEngineConfiguration()

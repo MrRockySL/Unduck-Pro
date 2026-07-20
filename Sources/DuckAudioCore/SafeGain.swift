@@ -27,6 +27,19 @@ public struct HardLimiter: Equatable, Sendable {
     }
 }
 
+/// Converts the app slider's visual percentage into an audio amplitude gain.
+/// Audio amplitude is not perceived linearly: a value of 0.6 is only about
+/// 4.4 dB below full scale and can sound almost unchanged. Squaring the slider
+/// value spreads useful loudness control across its full travel while keeping
+/// the endpoints exact (0% = silence, 100% = unity gain).
+public enum PerAppVolumeCurve {
+    public static func gain(forSliderValue value: Double) -> Float {
+        guard value.isFinite else { return 1 }
+        let normalized = min(1, max(0, value))
+        return Float(normalized * normalized)
+    }
+}
+
 public struct SafeGainConfig: Equatable, Sendable {
     public let maxGain: Float
     public let maxGainRisePerBuffer: Float
