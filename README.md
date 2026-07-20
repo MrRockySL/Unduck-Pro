@@ -41,6 +41,7 @@ No subscriptions. No paywall. No account. Just download it and it works.
 
 - 🔊 **Media stays loud on calls** — FaceTime, Zoom, Meet, Teams and more. No ducking, no fiddling.
 - 🙊 **No bleed** — your audio is never pushed into your mic, so callers hear only you.
+- 📞 **Independent call volume** — turn FaceTime and other calls down without lowering your music or video.
 - 🎛️ **Per-app volume mixer** — set each app's level independently (set it before it even plays, and it's remembered).
 - 🎧 **Output switcher** — jump between speakers, AirPods, and other devices without opening System Settings.
 - ⭐ **Favorites** — pin the apps you always want at hand.
@@ -109,18 +110,9 @@ Unduck Pro is built entirely on Apple's **public Core Audio process-tap** API
   full volume — with no digital boost or distortion.
 - **No bleed:** your media is routed through a private aggregate audio device that
   the call app never "hears," so it can't leak into the call.
-- **Per-app mixer:** each playing app is captured on its own tap, scaled by your
-  chosen volume, mixed, and passed through a hard limiter so nothing can ever blast
-  your speakers.
-
----
-
-## Roadmap
-
-Planned for a future update:
-
-- 🎚️ **Per-call volume** — turn the call itself (FaceTime / Zoom) up or down,
-  built the right way so the other person never hears an echo.
+- **Per-app mixer:** every playing app and call is routed through its own independent
+  audio pipeline, scaled by your chosen volume, and passed through a hard limiter so
+  nothing can ever blast your speakers.
 
 ---
 
