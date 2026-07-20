@@ -115,6 +115,29 @@ struct DuckAudioSelfTest {
         expect(singleCall.excludedObjectIDs == Set([42]), "single process exclusion", failures: &failures)
         expect(singleCall != inCall, "different process counts not equal", failures: &failures)
 
+        // The always-on watcher must derive call and output changes from one
+        // process scan, including helpers while excluding our own process.
+        let activityProcesses = [
+            AudioProcessInfo(objectID: 10, pid: 10, bundleID: "dev.mrrockysl.duckaudio",
+                             processName: "Unduck Pro", isRunning: true,
+                             isRunningInput: false, isRunningOutput: true),
+            AudioProcessInfo(objectID: 42, pid: 123, bundleID: "com.apple.FaceTime",
+                             processName: "FaceTime", isRunning: true,
+                             isRunningInput: true, isRunningOutput: true),
+            AudioProcessInfo(objectID: 77, pid: 777, bundleID: "com.google.Chrome.helper",
+                             processName: "Google Chrome Helper", isRunning: true,
+                             isRunningInput: false, isRunningOutput: true),
+            AudioProcessInfo(objectID: 88, pid: nil, bundleID: nil,
+                             processName: nil, isRunning: true,
+                             isRunningInput: false, isRunningOutput: true)
+        ]
+        let activity = CallWatcher.makeSnapshot(processes: activityProcesses, selfObjectID: 10)
+        expect(activity.callState.isInCall, "activity snapshot detects live call input", failures: &failures)
+        expect(activity.callState.excludedObjectIDs == Set([42]),
+               "activity snapshot identifies call process", failures: &failures)
+        expect(activity.outputObjectIDs == Set([42, 77]),
+               "activity snapshot tracks output apps and excludes self/background daemons", failures: &failures)
+
         // TapEngineConfiguration defaults
         let defaultConfig = TapEngineConfiguration()
         expect(defaultConfig.callGain == 1, "default callGain is 1", failures: &failures)

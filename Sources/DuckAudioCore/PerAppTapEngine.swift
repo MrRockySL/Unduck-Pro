@@ -7,6 +7,7 @@ public struct TappedApp: Sendable, Equatable {
     public let index: Int            // buffer index in the IOProc
     public let processObjectID: AudioObjectID
     public let pid: pid_t
+    public let bundleID: String?
     public let isCall: Bool
 }
 
@@ -40,7 +41,10 @@ public final class PerAppTapEngine: @unchecked Sendable {
     private let mutes: UnsafeMutablePointer<Float>   // 1 = audible, 0 = muted
     private let inPeaks: UnsafeMutablePointer<Float>  // per-app captured peak
 
-    /// Process object IDs of the call apps to EXCLUDE (never tap → no bleed).
+    /// Process object IDs of live call apps (apps actively using the mic).
+    /// They ARE tapped — so the call itself gets a volume slider — but flagged
+    /// `isCall` so the UI can tell them apart. Media never bleeds into the call
+    /// because the mix goes through a private aggregate the call app never hears.
     public var excludedCallIDs: Set<AudioObjectID> = []
 
     public init(limiterCeiling: Float = 0.9) {
@@ -105,11 +109,12 @@ public final class PerAppTapEngine: @unchecked Sendable {
 
         outputDeviceID = (try? AudioDeviceProbe.defaultOutputDeviceID()) ?? kAudioObjectUnknown
 
-        // Which processes to tap: anything producing output, except the call apps
-        // and ourselves.
+        // Which processes to tap: anything producing output except ourselves.
+        // Call apps are tapped too, so the call's own audio (e.g. FaceTime via
+        // avconferenced) gets a working volume slider.
         let me = (try? AudioProcessProbe.currentProcessObjectID()) ?? kAudioObjectUnknown
         let procs = (try? AudioProcessProbe.outputRunningProcesses()) ?? []
-        let toTap = procs.filter { $0.objectID != me && !excludedCallIDs.contains($0.objectID) }
+        let toTap = procs.filter { $0.objectID != me }
             .prefix(maxTaps)
 
         var newTaps: [AudioObjectID] = []
@@ -121,11 +126,12 @@ public final class PerAppTapEngine: @unchecked Sendable {
             // Only treat an app as a live call when it's actually using the
             // microphone — matching by name alone wrongly flags ordinary
             // Chrome/Safari media (YouTube, music) as a call and hides its
-            // mixer slider. Real mic calls are already excluded via
-            // excludedCallIDs, so anything we tap here is controllable media.
+            // mixer slider.
             newTapped.append(TappedApp(index: index, processObjectID: proc.objectID,
                                        pid: proc.pid ?? -1,
-                                       isCall: proc.isRunningInput && proc.callMatch != nil))
+                                       bundleID: proc.bundleID,
+                                       isCall: excludedCallIDs.contains(proc.objectID)
+                                           || (proc.isRunningInput && proc.callMatch != nil)))
             index += 1
         }
 

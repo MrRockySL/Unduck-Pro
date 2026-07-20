@@ -14,7 +14,8 @@ public enum CallState: Equatable, Sendable {
         return false
     }
 
-    /// The set of Core Audio object IDs that should be excluded from the tap.
+    /// The set of Core Audio object IDs that belong to live call processes.
+    /// The audio engine decides whether those processes are excluded or tapped.
     public var excludedObjectIDs: Set<AudioObjectID> {
         switch self {
         case .noCall:
@@ -22,6 +23,19 @@ public enum CallState: Equatable, Sendable {
         case .inCall(let processes):
             return Set(processes.map(\.objectID))
         }
+    }
+}
+
+/// One lightweight Core Audio process snapshot used for background engine
+/// maintenance. Keeping this separate from the UI lets the mixer panel sleep
+/// without letting the tap set become stale.
+public struct AudioActivitySnapshot: Equatable, Sendable {
+    public let callState: CallState
+    public let outputObjectIDs: Set<AudioObjectID>
+
+    public init(callState: CallState, outputObjectIDs: Set<AudioObjectID>) {
+        self.callState = callState
+        self.outputObjectIDs = outputObjectIDs
     }
 }
 
@@ -42,22 +56,24 @@ public struct CallProcessInfo: Equatable, Sendable {
 
 /// Delegate protocol for `CallWatcher` state changes.
 public protocol CallWatcherDelegate: AnyObject, Sendable {
-    /// Called on a background queue when the call state changes.
+    /// Called on a background queue when the call state or output-process set changes.
     /// `exclusionSetChanged` is true when the set of excluded process IDs
     /// differs from the previous state — this signals the tap needs rebuilding.
     func callWatcher(_ watcher: CallWatcher, didChangeState newState: CallState, exclusionSetChanged: Bool)
 }
 
-/// Polls Core Audio's process list to detect active voice calls.
+/// Polls Core Audio's process list to detect active voice calls and output apps.
 ///
 /// Runs a timer on a background dispatch queue at a configurable interval
-/// (default 1 second). When the call state changes, it notifies its delegate.
+/// (default 1 second). A single process scan drives both call detection and
+/// background tap maintenance, avoiding a second expensive polling loop.
 public final class CallWatcher: @unchecked Sendable {
     public let pollInterval: TimeInterval
     public weak var delegate: CallWatcherDelegate?
 
     private let lock = NSLock()
     private var _currentState: CallState = .noCall
+    private var _currentOutputObjectIDs: Set<AudioObjectID> = []
     private var _previousExcludedIDs: Set<AudioObjectID> = []
     private var timer: DispatchSourceTimer?
     private let queue = DispatchQueue(label: "dev.mrrockysl.duckaudio.callwatcher", qos: .utility)
@@ -74,6 +90,11 @@ public final class CallWatcher: @unchecked Sendable {
     /// The last observed call state. Thread-safe.
     public var currentState: CallState {
         lock.withLock { _currentState }
+    }
+
+    /// Output-producing process IDs from the last successful scan. Thread-safe.
+    public var currentOutputObjectIDs: Set<AudioObjectID> {
+        lock.withLock { _currentOutputObjectIDs }
     }
 
     /// Start polling. Performs an immediate first poll.
@@ -110,34 +131,42 @@ public final class CallWatcher: @unchecked Sendable {
     // MARK: - Private
 
     private func poll() {
-        let newState = detectCallState()
+        // A failed Core Audio read must not look like every app and call stopped.
+        // Preserve the last good snapshot and try again on the next timer tick.
+        guard let processes = try? AudioProcessProbe.allProcesses() else { return }
+        let selfObjectID = (try? AudioProcessProbe.currentProcessObjectID()) ?? kAudioObjectUnknown
+        let snapshot = Self.makeSnapshot(processes: processes, selfObjectID: selfObjectID)
+        let newState = snapshot.callState
 
-        let (changed, exclusionSetChanged) = lock.withLock { () -> (Bool, Bool) in
+        let (changed, exclusionSetChanged, outputsChanged) = lock.withLock { () -> (Bool, Bool, Bool) in
             let oldState = _currentState
             let newExcludedIDs = newState.excludedObjectIDs
 
             let stateChanged = oldState != newState
             let exclusionChanged = newExcludedIDs != _previousExcludedIDs
+            let outputChanged = snapshot.outputObjectIDs != _currentOutputObjectIDs
 
-            if stateChanged || exclusionChanged {
+            if stateChanged || exclusionChanged || outputChanged {
                 _currentState = newState
                 _previousExcludedIDs = newExcludedIDs
+                _currentOutputObjectIDs = snapshot.outputObjectIDs
             }
 
-            return (stateChanged, exclusionChanged)
+            return (stateChanged, exclusionChanged, outputChanged)
         }
 
-        if changed || exclusionSetChanged {
+        if changed || exclusionSetChanged || outputsChanged {
             delegate?.callWatcher(self, didChangeState: newState, exclusionSetChanged: exclusionSetChanged)
         }
     }
 
-    private func detectCallState() -> CallState {
-        guard let callProcesses = try? AudioProcessProbe.inputRunningCallProcesses(),
-              !callProcesses.isEmpty else {
-            return .noCall
-        }
-
+    /// Convert one Core Audio process scan into the two sets the engine needs.
+    /// Public so the deterministic filtering can be covered by the self-test.
+    public static func makeSnapshot(
+        processes: [AudioProcessInfo],
+        selfObjectID: AudioObjectID
+    ) -> AudioActivitySnapshot {
+        let callProcesses = processes.filter { $0.isRunningInput && $0.callMatch != nil }
         let infos = callProcesses.map { process in
             CallProcessInfo(
                 objectID: process.objectID,
@@ -146,7 +175,13 @@ public final class CallWatcher: @unchecked Sendable {
                 matchedName: process.callMatch?.name ?? "unknown"
             )
         }
-
-        return .inCall(processes: infos)
+        let callState: CallState = infos.isEmpty ? .noCall : .inCall(processes: infos)
+        let outputs = Set(processes.compactMap { process -> AudioObjectID? in
+            guard process.isRunningOutput,
+                  process.objectID != selfObjectID,
+                  process.processName != nil || process.bundleID != nil else { return nil }
+            return process.objectID
+        })
+        return AudioActivitySnapshot(callState: callState, outputObjectIDs: outputs)
     }
 }

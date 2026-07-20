@@ -73,6 +73,7 @@ final class EngineManager: ObservableObject, CallWatcherDelegate {
     private var isStarting = false
     private var menuVisible = false
     private var runningAppsTickCounter = 0
+    private var rebuildRetryTask: Task<Void, Never>?
 
     init() {
         favorites = Set(UserDefaults.standard.stringArray(forKey: favKey) ?? [])
@@ -116,6 +117,7 @@ final class EngineManager: ObservableObject, CallWatcherDelegate {
                 Task { @MainActor in
                     self.isStarting = false
                     self.lastCallSet = self.engine.excludedCallIDs
+                    self.lastTapSet = self.callWatcher.currentOutputObjectIDs
                     self.isRunning = true
                     // Only spin up the polling timer + first refresh if the panel
                     // is actually open; otherwise the engine just runs quietly.
@@ -128,6 +130,7 @@ final class EngineManager: ObservableObject, CallWatcherDelegate {
     func stopEngine() {
         guard isRunning else { return }
         stopUITimer()
+        rebuildRetryTask?.cancel(); rebuildRetryTask = nil
         callWatcher.stop()
         try? engine.stop()
         isRunning = false
@@ -165,27 +168,52 @@ final class EngineManager: ObservableObject, CallWatcherDelegate {
         timer?.invalidate(); timer = nil
     }
 
-    // MARK: - Call exclusion (runs even while the panel is closed)
+    // MARK: - Background audio maintenance
 
-    /// Fired by the call watcher whenever a call starts or stops — even with the
-    /// panel closed — so call apps are always excluded from the tap (no bleed)
-    /// without needing the full UI poll to be running.
+    /// Fired whenever the lightweight watcher sees a call transition OR a change
+    /// in output-producing apps. This remains active with the panel closed, so
+    /// tap maintenance no longer depends on opening the menu-bar window.
     nonisolated func callWatcher(_ watcher: CallWatcher, didChangeState newState: CallState,
                                  exclusionSetChanged: Bool) {
-        Task { @MainActor in self.syncCallExclusion(newState) }
+        let outputIDs = watcher.currentOutputObjectIDs
+        Task { @MainActor in self.reconcileAudioState(newState, outputIDs: outputIDs) }
     }
 
-    private func syncCallExclusion(_ state: CallState) {
+    private func reconcileAudioState(_ state: CallState, outputIDs: Set<AudioObjectID>) {
         guard isRunning else { return }
         isInCall = state.isInCall
         let callSet = state.excludedObjectIDs
-        guard callSet != lastCallSet else { return }
-        lastCallSet = callSet
+        let outputsChanged = outputIDs != lastTapSet
+        let callsChanged = callSet != lastCallSet
+        guard outputsChanged || callsChanged else { return }
+
         engine.excludedCallIDs = callSet
-        let outputs = (try? AudioProcessProbe.outputRunningProcesses()) ?? []
-        lastTapSet = Set(outputs.map(\.objectID)).subtracting(callSet)
-        try? engine.rebuild()
-        reapplyGains()
+        do {
+            try engine.rebuild()
+            lastTapSet = outputIDs
+            lastCallSet = callSet
+            rebuildRetryTask?.cancel(); rebuildRetryTask = nil
+            reapplyGains()
+            print("[engine] taps refreshed: outputs=\(outputIDs.count) calls=\(callSet.count)")
+        } catch {
+            fputs("[engine] tap refresh failed: \(error)\n", stderr)
+            scheduleRebuildRetry()
+        }
+    }
+
+    /// A transient HAL failure must not leave the app waiting for the user to
+    /// open the menu. Retry against the latest watcher snapshot after one second.
+    private func scheduleRebuildRetry() {
+        guard rebuildRetryTask == nil else { return }
+        rebuildRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let self, !Task.isCancelled else { return }
+            self.rebuildRetryTask = nil
+            self.reconcileAudioState(
+                self.callWatcher.currentState,
+                outputIDs: self.callWatcher.currentOutputObjectIDs
+            )
+        }
     }
 
     // MARK: - Controls
@@ -322,18 +350,6 @@ final class EngineManager: ObservableObject, CallWatcherDelegate {
     private func tick() {
         let callState = callWatcher.currentState
         isInCall = callState.isInCall
-        let callSet = callState.excludedObjectIDs
-
-        let outputs = (try? AudioProcessProbe.outputRunningProcesses()) ?? []
-        let tapSet = Set(outputs.map(\.objectID)).subtracting(callSet)
-
-        if tapSet != lastTapSet || callSet != lastCallSet {
-            lastTapSet = tapSet
-            lastCallSet = callSet
-            engine.excludedCallIDs = callSet
-            try? engine.rebuild()
-            reapplyGains()
-        }
 
         // Master system output — don't override while the user is dragging it.
         outputDeviceName = SystemVolume.deviceName()
@@ -413,17 +429,35 @@ final class EngineManager: ObservableObject, CallWatcherDelegate {
 
     private struct GroupInfo { var name: String; var icon: NSImage?; var processIDs: [AudioObjectID] }
 
-    /// Currently-playing media apps grouped by their parent GUI app.
+    /// Currently-playing apps grouped by their parent GUI app. Call apps are
+    /// included so the call itself (FaceTime / Zoom…) gets a working slider.
     private func groupActiveApps() -> [String: GroupInfo] {
         var groups: [String: GroupInfo] = [:]
-        for tapped in engine.tappedApps where !tapped.isCall {
+        for tapped in engine.tappedApps {
             let respPID = AudioAppMonitor.responsiblePID(for: tapped.pid)
             let app = NSRunningApplication(processIdentifier: respPID)
                 ?? NSRunningApplication(processIdentifier: tapped.pid)
-            guard let app, app.activationPolicy == .regular, let name = app.localizedName,
-                  let key = app.bundleIdentifier else { continue }
-            if groups[key] == nil { groups[key] = GroupInfo(name: name, icon: app.icon, processIDs: []) }
-            groups[key]?.processIDs.append(tapped.processObjectID)
+            if let app, app.activationPolicy == .regular, let name = app.localizedName,
+               let key = app.bundleIdentifier {
+                if groups[key] == nil { groups[key] = GroupInfo(name: name, icon: app.icon, processIDs: []) }
+                groups[key]?.processIDs.append(tapped.processObjectID)
+            } else if tapped.isCall {
+                // Call service daemons (e.g. avconferenced, which plays FaceTime's
+                // call audio) have no regular GUI app, so the lookup above fails.
+                // Group them under their call app so the slider actually controls
+                // the call audio.
+                let bid = tapped.bundleID ?? ""
+                let isFaceTime = bid.localizedCaseInsensitiveContains("avconferenced")
+                    || bid.localizedCaseInsensitiveContains("facetime")
+                let key = isFaceTime ? "com.apple.FaceTime" : (tapped.bundleID ?? "call.\(tapped.pid)")
+                let gui = NSRunningApplication.runningApplications(withBundleIdentifier: key).first
+                let fallbackName = KnownCallApp.match(bundleID: bid, processName: nil)?.name
+                let name = gui?.localizedName ?? (isFaceTime ? "FaceTime" : (fallbackName ?? "Call"))
+                let icon = gui?.icon
+                    ?? (isFaceTime ? NSWorkspace.shared.icon(forFile: "/System/Applications/FaceTime.app") : nil)
+                if groups[key] == nil { groups[key] = GroupInfo(name: name, icon: icon, processIDs: []) }
+                groups[key]?.processIDs.append(tapped.processObjectID)
+            }
         }
         return groups
     }
