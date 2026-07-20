@@ -4,7 +4,7 @@ import DuckAudioCore
 
 @main
 struct DuckAudioApp: App {
-    @StateObject private var engineManager = EngineManager()
+    @NSApplicationDelegateAdaptor(DuckAudioAppDelegate.self) private var appDelegate
 
     init() {
         let logPath = "/tmp/duckaudio.log"
@@ -16,19 +16,12 @@ struct DuckAudioApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra {
-            ContentView(manager: engineManager)
-                .onAppear { engineManager.menuDidOpen() }
-                .onDisappear { engineManager.menuDidClose() }
-        } label: {
-            // Menu-bar glyph: a real template NSImage (a Canvas view renders blank here).
-            // Start the engine as soon as the icon appears (app launch) so un-duck
-            // works immediately — the user never has to open the panel to turn it on.
-            Image(nsImage: MenuBarGlyph.image)
-                .opacity(engineManager.isRunning ? 1 : 0.55)
-                .onAppear { engineManager.startEngine(); engineManager.checkForUpdates() }
+        // The app's visible UI is hosted by StatusBarController in a custom,
+        // fully transparent panel. A Settings scene keeps the SwiftUI app
+        // lifecycle without creating an unwanted normal window.
+        Settings {
+            EmptyView()
         }
-        .menuBarExtraStyle(.window)
     }
 }
 
@@ -255,6 +248,7 @@ private extension View {
 
 struct ContentView: View {
     @ObservedObject var manager: EngineManager
+    var onLayoutChange: () -> Void = {}
     @State private var showAddMenu = false
     @State private var showOutputMenu = false
     @State private var showSettings = false
@@ -278,12 +272,15 @@ struct ContentView: View {
 
     private func toggleAddMenu() {
         withAnimation(menuAnim) { showOutputMenu = false; showAddMenu.toggle() }
+        onLayoutChange()
     }
     private func toggleOutputMenu() {
         withAnimation(menuAnim) { showAddMenu = false; showOutputMenu.toggle() }
+        onLayoutChange()
     }
     private func closeMenus() {
         withAnimation(menuAnim) { showAddMenu = false; showOutputMenu = false }
+        onLayoutChange()
     }
 
     var body: some View {
@@ -321,6 +318,9 @@ struct ContentView: View {
         .frame(width: 360)
         .background(panelBackground.contentShape(Rectangle()).onTapGesture { closeMenus() })
         .environment(\.colorScheme, .dark)
+        .onChange(of: manager.apps.count) { _, _ in onLayoutChange() }
+        .onChange(of: manager.outputDevices.count) { _, _ in onLayoutChange() }
+        .onChange(of: manager.runningApps.count) { _, _ in onLayoutChange() }
         // Always reopen on the home (mixer) view, never stuck on Settings.
         .onDisappear { showSettings = false; showAddMenu = false; showOutputMenu = false }
     }
@@ -384,6 +384,7 @@ struct ContentView: View {
                 closeMenus()
                 manager.refreshLaunchAtLogin()
                 withAnimation(menuAnim) { showSettings = true }
+                onLayoutChange()
             } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 15))
@@ -408,6 +409,7 @@ struct ContentView: View {
         HStack(spacing: 11) {
             Button {
                 withAnimation(menuAnim) { showSettings = false }
+                onLayoutChange()
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 15, weight: .bold))
@@ -688,7 +690,6 @@ struct ContentView: View {
     // Glass background
     private var panelBackground: some View {
         ZStack {
-            Rectangle().fill(.ultraThinMaterial)
             LinearGradient(colors: [Theme.glassTop.opacity(0.86), Theme.glassBot.opacity(0.9)],
                            startPoint: .top, endPoint: .bottom)
             // subtle gold + teal blooms (matches mockup ::before)
@@ -697,7 +698,6 @@ struct ContentView: View {
             RadialGradient(colors: [Theme.teal.opacity(0.16), .clear], center: .init(x: 0.06, y: 0),
                            startRadius: 0, endRadius: 200)
         }
-        .ignoresSafeArea()
     }
 }
 
