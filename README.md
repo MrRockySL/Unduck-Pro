@@ -127,6 +127,6 @@ send a **pull request** — let's make it better together.
 
 ## License
 
-[MIT](LICENSE) — free to use, change, and share.
+[MIT](LICENSE) — free to use, free to share. If you need to change it, please **[open an issue](../../issues)**.
 
 Made by **[MrRockySL](https://github.com/MrRockySL)**.
