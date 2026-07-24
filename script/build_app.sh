@@ -14,13 +14,14 @@ set -e
 CERT="${DUCKAUDIO_SIGN_IDENTITY:-Duck Audio Self Signed}"
 APP="Unduck Pro.app"
 
-echo "Building DuckAudioApp (release)..."
-swift build -c release --product DuckAudioApp
+echo "Building DuckAudioApp (release, universal: arm64 + x86_64)..."
+swift build -c release --product DuckAudioApp --arch arm64 --arch x86_64
+BIN_DIR="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
 
 echo "Packaging $APP ..."
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp ".build/release/DuckAudioApp" "$APP/Contents/MacOS/DuckAudio"
+cp "$BIN_DIR/DuckAudioApp" "$APP/Contents/MacOS/DuckAudio"
 cp "assets/UnduckPro.icns" "$APP/Contents/Resources/UnduckPro.icns"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -34,8 +35,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key><string>Unduck Pro</string>
   <key>CFBundleIconFile</key><string>UnduckPro</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>2.1</string>
-  <key>CFBundleVersion</key><string>3</string>
+  <key>CFBundleShortVersionString</key><string>2.2</string>
+  <key>CFBundleVersion</key><string>4</string>
   <key>LSMinimumSystemVersion</key><string>14.2</string>
   <key>LSUIElement</key><true/>
   <key>NSMicrophoneUsageDescription</key><string>Duck Audio needs audio access to keep your media loud during calls.</string>
@@ -53,6 +54,8 @@ else
   echo "Signing with stable identity: $CERT"
   codesign --force --options runtime --sign "$CERT" --entitlements script/DuckAudio.entitlements "$APP"
 fi
+
+echo "Architectures: $(lipo -archs "$APP/Contents/MacOS/DuckAudio")"
 
 echo "Registering with LaunchServices..."
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP" >/dev/null 2>&1 || true

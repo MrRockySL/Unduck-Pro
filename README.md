@@ -49,6 +49,7 @@ No subscriptions. No paywall. No account. Just download it and it works.
 - 🚀 **Launch at login** — start it automatically when you log in (optional, in Settings).
 - 🔔 **Update notifications** — it tells you when a new version is out, one click to download.
 - 🪶 **Featherweight** — a small menu-bar app. No kernel extensions, no virtual audio cables.
+- 💻 **Universal** — runs natively on both Intel and Apple Silicon Macs.
 - 🆓 **Free & open source** (MIT).
 
 > Requires **macOS 14.2 or newer** — it's built on Apple's modern Core Audio process-tap API.
