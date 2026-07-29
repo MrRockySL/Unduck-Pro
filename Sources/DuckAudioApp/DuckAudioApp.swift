@@ -2,26 +2,38 @@ import SwiftUI
 import AppKit
 import DuckAudioCore
 
+/// Unduck Pro is menu-bar only: every piece of its UI lives in the custom
+/// panel owned by `StatusBarController`, so it runs on a plain AppKit entry
+/// point instead of the SwiftUI `App` lifecycle.
+///
+/// It used to declare `Settings { EmptyView() }` purely to satisfy SwiftUI's
+/// rule that an `App` must have at least one scene. macOS opened that scene on
+/// launch, so an empty "Unduck Pro Settings" window appeared every time and had
+/// to be closed by hand. With no scene graph there is no window for the system
+/// to open or restore.
 @main
-struct DuckAudioApp: App {
-    @NSApplicationDelegateAdaptor(DuckAudioAppDelegate.self) private var appDelegate
+@MainActor
+enum DuckAudioMain {
+    /// `NSApplication` holds its delegate weakly, so it is retained here.
+    private static var appDelegate: DuckAudioAppDelegate?
 
-    init() {
+    static func main() {
+        redirectOutputToLogFile()
+
+        let application = NSApplication.shared
+        let delegate = DuckAudioAppDelegate()
+        appDelegate = delegate
+        application.delegate = delegate
+        application.run()
+    }
+
+    private static func redirectOutputToLogFile() {
         let logPath = "/tmp/duckaudio.log"
         freopen(logPath, "w", stdout)
         freopen(logPath, "w", stderr)
         setvbuf(stdout, nil, _IOLBF, 0)
         setvbuf(stderr, nil, _IONBF, 0)
         print("UnduckPro started")
-    }
-
-    var body: some Scene {
-        // The app's visible UI is hosted by StatusBarController in a custom,
-        // fully transparent panel. A Settings scene keeps the SwiftUI app
-        // lifecycle without creating an unwanted normal window.
-        Settings {
-            EmptyView()
-        }
     }
 }
 
