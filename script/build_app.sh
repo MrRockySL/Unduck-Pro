@@ -14,6 +14,25 @@ set -e
 CERT="${DUCKAUDIO_SIGN_IDENTITY:-Duck Audio Self Signed}"
 APP="Unduck Pro.app"
 
+# Build against the newest RELEASED macOS SDK, not a beta one.
+#
+# The macOS 27.0 beta SDK redeclares SwiftUI's `State` as a macro, which needs
+# the SwiftUIMacros compiler plugin. That plugin ships only with Xcode, so on a
+# machine with just the Command Line Tools the app target fails to compile
+# ("plugin for module 'SwiftUIMacros' not found"). The 26.x SDK still declares
+# `State` as a plain property wrapper and builds fine. The app targets macOS
+# 14.2+ regardless, so nothing is lost by not building against the beta.
+if [ -z "${SDKROOT:-}" ]; then
+  for candidate in "$(xcrun --sdk macosx26 --show-sdk-path 2>/dev/null)" \
+                   /Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk; do
+    if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+      export SDKROOT="$candidate"
+      break
+    fi
+  done
+fi
+echo "Using SDK: ${SDKROOT:-<toolchain default>}"
+
 echo "Building DuckAudioApp (release, universal: arm64 + x86_64)..."
 swift build -c release --product DuckAudioApp --arch arm64 --arch x86_64
 BIN_DIR="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
