@@ -125,14 +125,28 @@ public final class PerAppTapEngine: @unchecked Sendable {
         outputDeviceID = output.id
 
         let me = (try? AudioProcessProbe.currentProcessObjectID()) ?? kAudioObjectUnknown
-        let allOutputs = (try? AudioProcessProbe.outputRunningProcesses()) ?? []
+        // One scan answers both "who is playing" and "who still exists at all",
+        // instead of paying for two separate process enumerations.
+        //
+        // A failed read must not be mistaken for "every app stopped playing" —
+        // that would tear down every healthy pipeline over a transient HAL
+        // hiccup. Keep what we have and wait for the next poll instead.
+        guard let allProcesses = try? AudioProcessProbe.allProcesses() else {
+            applyUnduck()
+            return
+        }
+        let allOutputs = allProcesses.filter { process in
+            process.isRunningOutput
+                && process.objectID != me
+                && (process.processName != nil || process.bundleID != nil)
+        }
         let prioritized = allOutputs.sorted { lhs, rhs in
             let lhsCall = isLiveCallProcess(lhs)
             let rhsCall = isLiveCallProcess(rhs)
             if lhsCall != rhsCall { return lhsCall }
             return (lhs.bundleID ?? lhs.processName ?? "") < (rhs.bundleID ?? rhs.processName ?? "")
         }
-        let desiredProcesses = Array(prioritized.filter { $0.objectID != me }.prefix(maxTaps))
+        let desiredProcesses = Array(prioritized.prefix(maxTaps))
         let desiredIDs = Set(desiredProcesses.map(\.objectID))
 
         let deviceChanged = self.outputDeviceUID != nil && self.outputDeviceUID != outputUID
@@ -208,14 +222,16 @@ public final class PerAppTapEngine: @unchecked Sendable {
         return unsafeBitCast(symbol, to: DuckFn.self)
     }()
 
+    /// Restore unity gain on the output device and every aggregate we own.
+    ///
+    /// This deliberately does **not** call `AudioDeviceDuck`. That call sets the
+    /// device's gain back to unity in a single instantaneous step, and running it
+    /// twice a second while macOS is continuously re-ducking during a call put an
+    /// audible tick into whatever media was playing. Isolating it during a live
+    /// call showed the media stays just as loud without it — the `duck` property
+    /// write below is what actually holds the level — and the ticking stops.
     private func applyUnduck() {
         let aggregateIDs = lock.withLock { pipelines.values.map(\.aggregateDeviceID) }
-        if let duck = Self.audioDeviceDuck {
-            if outputDeviceID != kAudioObjectUnknown { _ = duck(outputDeviceID, 1.0, nil, 0) }
-            for aggregateID in aggregateIDs where aggregateID != kAudioObjectUnknown {
-                _ = duck(aggregateID, 1.0, nil, 0)
-            }
-        }
         writeDuckProperty(outputDeviceID)
         for aggregateID in aggregateIDs { writeDuckProperty(aggregateID) }
     }
@@ -364,8 +380,8 @@ private final class ProcessTapPipeline: @unchecked Sendable {
         // Restore the process's native output while the tap is still being read.
         if #available(macOS 14.2, *), isStarted, tapID != kAudioObjectUnknown {
             let status = setTapMuteBehavior(.unmuted)
-            if status != noErr {
-                firstError = AudioHardwareError(operation: "Restore process tap output", status: status)
+            if let error = Self.cleanupError(status, operation: "Restore process tap output") {
+                firstError = error
             }
             usleep(80_000)
         }
@@ -376,34 +392,42 @@ private final class ProcessTapPipeline: @unchecked Sendable {
         if let firstError { throw firstError }
     }
 
+    /// A Core Audio object that has already gone away is a *successful* cleanup,
+    /// not a failure. When an app exits, its process object disappears before we
+    /// get to tear its pipeline down, and reporting that as an error made
+    /// `reconcileAudioState` log a scary "tap refresh failed" and schedule a
+    /// pointless rebuild retry — extra churn for something that already worked.
+    private static func cleanupError(_ status: OSStatus, operation: String) -> Error? {
+        guard status != noErr, status != kAudioHardwareBadObjectError else { return nil }
+        return AudioHardwareError(operation: operation, status: status)
+    }
+
     @discardableResult
     private func destroyResources() -> Error? {
         var firstError: Error?
 
+        func record(_ status: OSStatus, _ operation: String) {
+            guard let error = Self.cleanupError(status, operation: operation) else { return }
+            if firstError == nil { firstError = error }
+        }
+
         if isStarted, aggregateDeviceID != kAudioObjectUnknown {
-            let status = AudioDeviceStop(aggregateDeviceID, ioProcID)
-            if status != noErr { firstError = AudioHardwareError(operation: "AudioDeviceStop", status: status) }
+            record(AudioDeviceStop(aggregateDeviceID, ioProcID), "AudioDeviceStop")
             isStarted = false
         }
         if let ioProcID, aggregateDeviceID != kAudioObjectUnknown {
-            let status = AudioDeviceDestroyIOProcID(aggregateDeviceID, ioProcID)
-            if status != noErr, firstError == nil {
-                firstError = AudioHardwareError(operation: "AudioDeviceDestroyIOProcID", status: status)
-            }
+            record(AudioDeviceDestroyIOProcID(aggregateDeviceID, ioProcID), "AudioDeviceDestroyIOProcID")
         }
         ioProcID = nil
         if aggregateDeviceID != kAudioObjectUnknown {
-            let status = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
-            if status != noErr, firstError == nil {
-                firstError = AudioHardwareError(operation: "AudioHardwareDestroyAggregateDevice", status: status)
-            }
+            record(
+                AudioHardwareDestroyAggregateDevice(aggregateDeviceID),
+                "AudioHardwareDestroyAggregateDevice"
+            )
             aggregateDeviceID = kAudioObjectUnknown
         }
         if #available(macOS 14.2, *), tapID != kAudioObjectUnknown {
-            let status = AudioHardwareDestroyProcessTap(tapID)
-            if status != noErr, firstError == nil {
-                firstError = AudioHardwareError(operation: "AudioHardwareDestroyProcessTap", status: status)
-            }
+            record(AudioHardwareDestroyProcessTap(tapID), "AudioHardwareDestroyProcessTap")
             tapID = kAudioObjectUnknown
         }
         tapDescription = nil
