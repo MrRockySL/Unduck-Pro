@@ -115,6 +115,7 @@ final class StatusBarController: NSObject {
         hostingView.rootView = MenuBarPanelRoot(
             manager: manager,
             sessionID: UUID(),
+            isActive: true,
             onLayoutChange: { [weak self] in self?.requestContentSizeUpdate() }
         )
         manager.menuDidOpen()
@@ -137,6 +138,13 @@ final class StatusBarController: NSObject {
         statusItem?.button?.highlight(false)
         removeEventMonitors()
         manager.menuDidClose()
+        // Tear the SwiftUI content down so nothing keeps animating off-screen.
+        // `openPanel()` rebuilds it from scratch on every open anyway.
+        hostingView.rootView = MenuBarPanelRoot(
+            manager: manager,
+            sessionID: UUID(),
+            isActive: false
+        )
     }
 
     private func contentSizeDidChange(_ rawSize: CGSize) {
@@ -231,9 +239,24 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
 private struct MenuBarPanelRoot: View {
     @ObservedObject var manager: EngineManager
     let sessionID: UUID
+    /// False while the panel is closed. Ordering an `NSPanel` out does not stop
+    /// its hosting view from laying out: the mixer's `EQBars` use
+    /// `TimelineView(.animation)`, so the whole panel was re-running a full
+    /// SwiftUI layout pass every display frame while nobody could see it. That
+    /// burned ~20% CPU continuously and added needless scheduling pressure to
+    /// the audio render queues. Swapping in an inert view stops it dead.
+    var isActive: Bool = true
     var onLayoutChange: () -> Void = {}
 
     var body: some View {
+        if isActive {
+            activeBody
+        } else {
+            Color.clear.frame(width: 360, height: 1)
+        }
+    }
+
+    private var activeBody: some View {
         ContentView(manager: manager, onLayoutChange: onLayoutChange)
             .id(sessionID)
             // The hosting view is otherwise allowed to compress this VStack to
