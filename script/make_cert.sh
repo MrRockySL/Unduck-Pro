@@ -38,8 +38,12 @@ echo "Generating key + self-signed code-signing certificate..."
 openssl req -x509 -newkey rsa:2048 -keyout "$WORK/da.key" -out "$WORK/da.crt" \
   -days 3650 -nodes -config "$WORK/codesign.conf" >/dev/null 2>&1
 
-# -legacy + -macalg sha1 = format macOS `security import` can read.
-openssl pkcs12 -export -legacy -inkey "$WORK/da.key" -in "$WORK/da.crt" \
+LEGACY_FLAG=""
+if openssl pkcs12 -help 2>&1 | grep -q -- "-legacy"; then
+  LEGACY_FLAG="-legacy"
+fi
+
+openssl pkcs12 -export $LEGACY_FLAG -inkey "$WORK/da.key" -in "$WORK/da.crt" \
   -out "$WORK/da.p12" -passout pass:duckaudio -name "$CN" -macalg sha1 >/dev/null 2>&1
 
 echo "Importing into login keychain (allows codesign to use it)..."

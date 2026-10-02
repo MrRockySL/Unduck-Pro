@@ -33,9 +33,13 @@ if [ -z "${SDKROOT:-}" ]; then
 fi
 echo "Using SDK: ${SDKROOT:-<toolchain default>}"
 
-echo "Building DuckAudioApp (release, universal: arm64 + x86_64)..."
-swift build -c release --product DuckAudioApp --arch arm64 --arch x86_64
-BIN_DIR="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+ARCH_FLAGS="--arch arm64 --arch x86_64"
+if ! xcrun --find xcbuild >/dev/null 2>&1; then
+  ARCH_FLAGS=""
+fi
+echo "Building DuckAudioApp (release)..."
+swift build -c release --product DuckAudioApp $ARCH_FLAGS
+BIN_DIR="$(swift build -c release $ARCH_FLAGS --show-bin-path)"
 
 echo "Packaging $APP ..."
 rm -rf "$APP"
@@ -64,14 +68,17 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-if ! security find-identity -p codesigning 2>/dev/null | grep -q "$CERT"; then
+if security find-identity -p codesigning 2>/dev/null | grep -q "$CERT"; then
+  echo "Signing with stable identity: $CERT"
+  if ! codesign --force --options runtime --sign "$CERT" --entitlements script/DuckAudio.entitlements "$APP"; then
+    echo "WARNING: Failed to sign with '$CERT'. Falling back to ad-hoc signature..."
+    codesign --force --options runtime --sign - --entitlements script/DuckAudio.entitlements "$APP"
+  fi
+else
   echo "WARNING: code-signing identity '$CERT' not found."
   echo "Run script/make_cert.sh once to create it, or set DUCKAUDIO_SIGN_IDENTITY."
-  echo "Falling back to ad-hoc (the app will NOT work when double-clicked!)."
+  echo "Falling back to ad-hoc signature..."
   codesign --force --options runtime --sign - --entitlements script/DuckAudio.entitlements "$APP"
-else
-  echo "Signing with stable identity: $CERT"
-  codesign --force --options runtime --sign "$CERT" --entitlements script/DuckAudio.entitlements "$APP"
 fi
 
 echo "Architectures: $(lipo -archs "$APP/Contents/MacOS/DuckAudio")"

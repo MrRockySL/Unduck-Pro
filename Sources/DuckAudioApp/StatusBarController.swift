@@ -65,7 +65,7 @@ final class StatusBarController: NSObject {
         container.layer?.cornerCurve = .continuous
         container.layer?.masksToBounds = true
         container.layer?.borderWidth = 1
-        container.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
+        container.layer?.borderColor = NSColor(red: 58/255, green: 58/255, blue: 58/255, alpha: 1.0).cgColor
 
         let blur = NSVisualEffectView()
         blur.material = .hudWindow

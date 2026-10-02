@@ -37,29 +37,22 @@ enum DuckAudioMain {
     }
 }
 
-// MARK: - Theme (Option B · "Levels")
+// MARK: - Theme (Minimal · Calm)
 
 enum Theme {
-    static let glassTop = Color(red: 13/255, green: 53/255, blue: 53/255)
-    static let glassBot = Color(red: 7/255,  green: 31/255, blue: 33/255)
+    static let bg      = Color(red: 30/255, green: 30/255, blue: 30/255)
+    static let surface = Color(red: 42/255, green: 42/255, blue: 42/255)
+    static let surfaceHover = Color(red: 51/255, green: 51/255, blue: 51/255)
+    static let border  = Color(red: 58/255, green: 58/255, blue: 58/255)
 
-    static let ink  = Color.white.opacity(0.96)
-    static let ink2 = Color(red: 214/255, green: 235/255, blue: 232/255).opacity(0.60)
-    static let ink3 = Color(red: 214/255, green: 235/255, blue: 232/255).opacity(0.40)
-    static let hair = Color.white.opacity(0.10)
+    static let ink  = Color(red: 232/255, green: 232/255, blue: 232/255)
+    static let ink2 = Color(red: 153/255, green: 153/255, blue: 153/255)
+    static let ink3 = Color(red: 102/255, green: 102/255, blue: 102/255)
 
-    static let gold   = Color(red: 255/255, green: 194/255, blue: 75/255)
-    static let goldHi = Color(red: 255/255, green: 228/255, blue: 145/255)
-    static let teal   = Color(red: 25/255,  green: 192/255, blue: 171/255)
-    static let teal2  = Color(red: 52/255,  green: 224/255, blue: 200/255)
-    static let green  = Color(red: 61/255,  green: 224/255, blue: 138/255)
+    static let accent     = Color(red: 108/255, green: 160/255, blue: 220/255)
+    static let accentSoft = Color(red: 108/255, green: 160/255, blue: 220/255).opacity(0.15)
 
-    static let tealFill   = LinearGradient(colors: [teal, teal2], startPoint: .leading, endPoint: .trailing)
-    static let boostFill   = LinearGradient(
-        stops: [.init(color: teal, location: 0), .init(color: teal2, location: 0.55),
-                .init(color: gold, location: 0.80), .init(color: goldHi, location: 1.0)],
-        startPoint: .leading, endPoint: .trailing)
-    static let goldButton = LinearGradient(colors: [gold, goldHi], startPoint: .topLeading, endPoint: .bottomTrailing)
+    static let red = Color(red: 217/255, green: 115/255, blue: 115/255)
 }
 
 // MARK: - Duck glyph (drawn from the same primitives as the SVG logo)
@@ -184,8 +177,6 @@ struct GlassSlider: View {
     var range: ClosedRange<Double>
     var showTick: Bool = false
 
-    private var boosted: Bool { range.upperBound > 1.0 && value > 1.0 }
-
     private let knob: CGFloat = 15
 
     var body: some View {
@@ -194,17 +185,16 @@ struct GlassSlider: View {
             let span = range.upperBound - range.lowerBound
             let frac = max(0, min(1, (value - range.lowerBound) / span))
             let r = knob / 2
-            let usable = max(1, w - knob)          // keep the knob fully inside the track
-            let knobX = r + frac * usable          // knob centre
+            let usable = max(1, w - knob)
+            let knobX = r + frac * usable
 
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.12)).frame(height: 5)
-                Capsule().fill(boosted ? Theme.boostFill : Theme.tealFill)
-                    .frame(width: max(5, knobX), height: 5)
+                Capsule().fill(Theme.border).frame(height: 4)
+                Capsule().fill(Theme.accent)
+                    .frame(width: max(4, knobX), height: 4)
                 Circle().fill(Color.white)
                     .frame(width: knob, height: knob)
-                    .overlay(boosted ? Circle().strokeBorder(Theme.gold, lineWidth: 2) : nil)
-                    .shadow(color: .black.opacity(0.5), radius: 2.5, y: 2)
+                    .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
                     .offset(x: knobX - r)
             }
             .frame(maxHeight: .infinity)
@@ -228,11 +218,10 @@ struct ToggleSwitch: View {
     var body: some View {
         ZStack(alignment: isOn ? .trailing : .leading) {
             Capsule()
-                .fill(isOn ? AnyShapeStyle(Theme.green) : AnyShapeStyle(Color.white.opacity(0.18)))
+                .fill(isOn ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.white.opacity(0.12)))
                 .frame(width: 38, height: 21)
-                .shadow(color: isOn ? Theme.green.opacity(0.6) : .clear, radius: 6)
             Circle().fill(.white).frame(width: 17, height: 17)
-                .shadow(color: .black.opacity(0.4), radius: 1.5, y: 1)
+                .shadow(color: .black.opacity(0.25), radius: 1.5, y: 1)
                 .padding(2)
         }
         .animation(.easeInOut(duration: 0.16), value: isOn)
@@ -247,11 +236,10 @@ private extension View {
             .padding(.horizontal, 14).padding(.vertical, 13)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 15)
-                    .fill(LinearGradient(colors: [Theme.teal.opacity(0.10), Theme.teal.opacity(0.03)],
-                                         startPoint: .top, endPoint: .bottom))
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Theme.surface)
             )
-            .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(Theme.teal.opacity(0.28)))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border, lineWidth: 0.5))
             .contentShape(Rectangle())
     }
 }
@@ -362,34 +350,28 @@ struct ContentView: View {
         .frame(width: 318, height: contentHeight)
         .padding(5)
         .background(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(LinearGradient(
-                    colors: [Color(red: 16/255, green: 58/255, blue: 58/255).opacity(0.98),
-                             Color(red: 9/255,  green: 38/255, blue: 40/255).opacity(0.98)],
-                    startPoint: .top, endPoint: .bottom))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Theme.surface)
         )
-        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(Color.white.opacity(0.14)))
-        .shadow(color: .black.opacity(0.6), radius: 22, y: 12)
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.border, lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
     }
 
     // Header
     private var header: some View {
         HStack(spacing: 11) {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(LinearGradient(colors: [Theme.teal2, Color(red: 12/255, green: 138/255, blue: 134/255)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+                .fill(Theme.accent)
                 .frame(width: 32, height: 32)
                 .overlay(
-                    DuckGlyph(bodyColor: .white, billColor: Theme.goldHi,
-                              eyeColor: Color(red: 12/255, green: 138/255, blue: 134/255))
+                    DuckGlyph(bodyColor: .white, billColor: Theme.ink,
+                              eyeColor: Theme.accent)
                         .frame(width: 23, height: 23)
                 )
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.2)))
-                .shadow(color: Theme.teal.opacity(0.5), radius: 8)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Unduck Pro").font(.system(size: 17, weight: .bold)).foregroundStyle(Theme.ink)
                 Text("LEVELS").font(.system(size: 10, weight: .heavy))
-                    .tracking(1.2).foregroundStyle(Theme.gold)
+                    .tracking(1.2).foregroundStyle(Theme.ink2)
             }
             Spacer()
             Button {
@@ -402,11 +384,11 @@ struct ContentView: View {
                     .font(.system(size: 15))
                     .foregroundStyle(Theme.ink2)
                     .frame(width: 30, height: 30)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.06)))
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.surface))
                     .overlay(alignment: .topTrailing) {
-                        if manager.updateAvailable {   // gold dot = update waiting
-                            Circle().fill(Theme.gold).frame(width: 8, height: 8)
-                                .overlay(Circle().strokeBorder(Theme.glassBot, lineWidth: 1.5))
+                        if manager.updateAvailable {
+                            Circle().fill(Theme.accent).frame(width: 8, height: 8)
+                                .overlay(Circle().strokeBorder(Theme.bg, lineWidth: 1.5))
                                 .offset(x: 2, y: -2)
                         }
                     }
@@ -427,14 +409,14 @@ struct ContentView: View {
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(Theme.ink2)
                     .frame(width: 32, height: 32)
-                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.06)))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.12)))
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.surface))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.border, lineWidth: 0.5))
             }
             .buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Unduck Pro").font(.system(size: 17, weight: .bold)).foregroundStyle(Theme.ink)
                 Text("SETTINGS").font(.system(size: 10, weight: .heavy))
-                    .tracking(1.2).foregroundStyle(Theme.gold)
+                    .tracking(1.2).foregroundStyle(Theme.ink2)
             }
             Spacer()
         }
@@ -458,16 +440,16 @@ struct ContentView: View {
             // Updates
             settingsCard {
                 settingsIcon(manager.updateAvailable ? "arrow.down.circle.fill" : "checkmark.circle",
-                             tint: manager.updateAvailable ? Theme.gold : Theme.teal2)
+                             tint: manager.updateAvailable ? Theme.accent : Theme.ink2)
                 if manager.updateAvailable {
                     settingsText("Update available",
                                  "Version \(manager.latestVersion ?? "") is ready — you have \(manager.currentVersion)")
                     Spacer(minLength: 8)
                     Button { openURL(manager.releasesURL) } label: {
                         Text("Download").font(.system(size: 12.5, weight: .bold))
-                            .foregroundStyle(Color(red: 8/255, green: 49/255, blue: 47/255))
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 12).padding(.vertical, 7)
-                            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.goldButton))
+                            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.accent))
                     }.buttonStyle(.plain)
                 } else {
                     settingsText(manager.isCheckingUpdate ? "Checking for updates…" : "You're up to date",
@@ -478,7 +460,7 @@ struct ContentView: View {
                             .font(.system(size: 12.5, weight: .semibold))
                             .foregroundStyle(Theme.ink2)
                             .padding(.horizontal, 12).padding(.vertical, 7)
-                            .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.07)))
+                            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.surface))
                     }
                     .buttonStyle(.plain)
                     .disabled(manager.isCheckingUpdate)
@@ -499,7 +481,7 @@ struct ContentView: View {
             // Reset volumes & favorites (tap twice to confirm)
             Button { handleReset() } label: {
                 HStack(spacing: 12) {
-                    settingsIcon("arrow.counterclockwise", tint: confirmReset ? Color(red: 1, green: 0.5, blue: 0.5) : Theme.teal2)
+                    settingsIcon("arrow.counterclockwise", tint: confirmReset ? Theme.red : Theme.accent)
                     settingsText(confirmReset ? "Tap again to confirm" : "Reset volumes & favorites",
                                  "Clears saved app volumes and starred apps")
                     Spacer(minLength: 8)
@@ -511,10 +493,10 @@ struct ContentView: View {
     }
 
     // Settings helpers
-    private func settingsIcon(_ name: String, tint: Color = Theme.teal2) -> some View {
+    private func settingsIcon(_ name: String, tint: Color = Theme.accent) -> some View {
         Image(systemName: name).font(.system(size: 15)).foregroundStyle(tint)
             .frame(width: 26, height: 26)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.teal.opacity(0.14)))
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentSoft))
     }
     private func settingsText(_ title: String, _ subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -543,36 +525,35 @@ struct ContentView: View {
     @ViewBuilder private var statusBanner: some View {
         if let error = manager.error {
             HStack(spacing: 11) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.red)
                 Text(error.localizedDescription).font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Theme.ink).fixedSize(horizontal: false, vertical: true)
                 Spacer()
             }
             .padding(11)
-            .background(RoundedRectangle(cornerRadius: 13).fill(Color.red.opacity(0.12)))
-            .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(Color.red.opacity(0.3)))
+            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.red.opacity(0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border, lineWidth: 0.5))
         } else {
             let inCall = manager.isInCall
             HStack(spacing: 11) {
-                EQBars(active: inCall && manager.isRunning, color: Theme.green,
+                EQBars(active: inCall && manager.isRunning, color: Theme.ink3,
                        bases: [7, 14, 9, 12], barWidth: 3)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(inCall ? "On a call" : (manager.isRunning ? "Active" : "Starting…"))
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(red: 223/255, green: 250/255, blue: 234/255))
+                        .foregroundStyle(Theme.ink)
                     Text(inCall ? "Media stays loud — ducking paused"
                                 : (manager.isRunning ? "Watching for calls" : "Getting ready"))
-                        .font(.system(size: 11)).foregroundStyle(Color(red: 223/255, green: 250/255, blue: 234/255).opacity(0.62))
+                        .font(.system(size: 11)).foregroundStyle(Theme.ink2)
                 }
                 Spacer()
             }
             .padding(.horizontal, 13).padding(.vertical, 11)
             .background(
-                RoundedRectangle(cornerRadius: 13)
-                    .fill(LinearGradient(colors: [Theme.green.opacity(0.16), Theme.green.opacity(0.05)],
-                                         startPoint: .leading, endPoint: .trailing))
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Theme.surface)
             )
-            .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(Theme.green.opacity(0.3)))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border, lineWidth: 0.5))
             .opacity(manager.isRunning ? 1 : 0.55)
         }
     }
@@ -584,7 +565,7 @@ struct ContentView: View {
             if !manager.apps.isEmpty {
                 Text("\(manager.apps.count)").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.ink3)
             }
-            Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1)
+            Rectangle().fill(Theme.border).frame(height: 0.5)
         }
         .padding(.horizontal, 18).padding(.top, 11).padding(.bottom, 6)
     }
@@ -606,18 +587,18 @@ struct ContentView: View {
         }
     }
 
-    // Add favorite — gold button with a custom dark-glass drop-up (matches mockup)
+    // Add favorite — outlined accent button with a drop-up list
     private var addFavorite: some View {
         Button { toggleAddMenu() } label: {
             HStack(spacing: 8) {
                 Image(systemName: "plus").font(.system(size: 13, weight: .bold))
-                Text("Add Favorite").font(.system(size: 13, weight: .bold))
+                Text("Add Favorite").font(.system(size: 13, weight: .semibold))
             }
-            .foregroundStyle(Color(red: 8/255, green: 49/255, blue: 47/255))
+            .foregroundStyle(Theme.accent)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 11)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.goldButton))
-            .shadow(color: Theme.gold.opacity(0.5), radius: 7, y: 4)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.surface))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.accent.opacity(0.4), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 16).padding(.top, 9).padding(.bottom, 4)
@@ -650,14 +631,11 @@ struct ContentView: View {
         .frame(width: 318, height: contentHeight)
         .padding(5)
         .background(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(LinearGradient(
-                    colors: [Color(red: 16/255, green: 58/255, blue: 58/255).opacity(0.98),
-                             Color(red: 9/255,  green: 38/255, blue: 40/255).opacity(0.98)],
-                    startPoint: .top, endPoint: .bottom))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Theme.surface)
         )
-        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(Color.white.opacity(0.14)))
-        .shadow(color: .black.opacity(0.6), radius: 22, y: 12)
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.border, lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
     }
 
     // Footer — Quit sits in the bottom-right corner.
@@ -677,7 +655,7 @@ struct ContentView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 15).padding(.top, 11).padding(.bottom, 8)
-        .overlay(Rectangle().fill(Theme.hair).frame(height: 0.5), alignment: .top)
+        .overlay(Rectangle().fill(Theme.border).frame(height: 0.5), alignment: .top)
     }
 
     // Developer credit → opens MrRockySL's GitHub profile.
@@ -699,17 +677,9 @@ struct ContentView: View {
         .padding(.bottom, 10)
     }
 
-    // Glass background
+    // Panel background
     private var panelBackground: some View {
-        ZStack {
-            LinearGradient(colors: [Theme.glassTop.opacity(0.86), Theme.glassBot.opacity(0.9)],
-                           startPoint: .top, endPoint: .bottom)
-            // subtle gold + teal blooms (matches mockup ::before)
-            RadialGradient(colors: [Theme.gold.opacity(0.14), .clear], center: .init(x: 0.88, y: 0),
-                           startRadius: 0, endRadius: 200)
-            RadialGradient(colors: [Theme.teal.opacity(0.16), .clear], center: .init(x: 0.06, y: 0),
-                           startRadius: 0, endRadius: 200)
-        }
+        Theme.bg
     }
 }
 
@@ -723,7 +693,7 @@ struct MasterRow: View {
     var body: some View {
         VStack(spacing: 11) {
             HStack(spacing: 10) {
-                Image(systemName: "speaker.wave.2.fill").font(.system(size: 15)).foregroundStyle(Theme.teal2)
+                Image(systemName: "speaker.wave.2.fill").font(.system(size: 15)).foregroundStyle(Theme.accent)
                     .frame(width: 20)
                 Button(action: onDeviceTap) {
                     HStack(spacing: 5) {
@@ -737,18 +707,18 @@ struct MasterRow: View {
                 }
                 .buttonStyle(.plain)
                 Text("OUTPUT").font(.system(size: 9, weight: .heavy)).tracking(0.8)
-                    .foregroundStyle(Theme.teal2)
+                    .foregroundStyle(Theme.accent)
                     .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.teal.opacity(0.14)))
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.accentSoft))
                 Spacer(minLength: 4)
                 Text("\(Int(manager.systemVolume * 100))%")
                     .font(.system(size: 13, weight: .bold).monospacedDigit()).foregroundStyle(Theme.ink)
                 Button { manager.toggleSystemMute() } label: {
                     Image(systemName: manager.systemMuted ? "speaker.slash.fill" : "speaker.fill")
                         .font(.system(size: 13))
-                        .foregroundStyle(manager.systemMuted ? Color(red: 1, green: 0.48, blue: 0.48) : Theme.ink2)
+                        .foregroundStyle(manager.systemMuted ? Theme.red : Theme.ink2)
                         .frame(width: 28, height: 28)
-                        .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.06)))
+                        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.surface))
                 }
                 .buttonStyle(.plain)
             }
@@ -757,11 +727,10 @@ struct MasterRow: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 13)
         .background(
-            RoundedRectangle(cornerRadius: 15)
-                .fill(LinearGradient(colors: [Theme.teal.opacity(0.10), Theme.teal.opacity(0.03)],
-                                     startPoint: .top, endPoint: .bottom))
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Theme.surface)
         )
-        .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(Theme.teal.opacity(0.28)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border, lineWidth: 0.5))
     }
 }
 
@@ -774,13 +743,12 @@ struct AppRow: View {
     private var liveVolume: Double {
         manager.apps.first(where: { $0.id == app.id })?.volume ?? app.volume
     }
-    private var boosted: Bool { liveVolume > 1.0 }
 
     var body: some View {
         HStack(spacing: 11) {
             Button { manager.toggleFavorite(app) } label: {
                 Image(systemName: app.isFavorite ? "star.fill" : "star")
-                    .font(.system(size: 15)).foregroundStyle(app.isFavorite ? Theme.gold : Theme.ink3)
+                    .font(.system(size: 15)).foregroundStyle(app.isFavorite ? Theme.accent : Theme.ink3)
                     .frame(width: 20)
             }
             .buttonStyle(.plain)
@@ -800,17 +768,17 @@ struct AppRow: View {
                 HStack(spacing: 8) {
                     Text(app.name).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.ink).lineLimit(1)
                     if app.isActive {
-                        EQBars(active: true, color: Theme.green, bases: [5, 10, 7],
+                        EQBars(active: true, color: Theme.ink3, bases: [5, 10, 7],
                                phases: [0, 0.4, 0.65], barWidth: 2.2, spacing: 1.7)
                     }
                     Spacer(minLength: 4)
                     Text("\(Int(liveVolume * 100))%")
                         .font(.system(size: 12, weight: .bold).monospacedDigit())
-                        .foregroundStyle(boosted ? Color(red: 28/255, green: 20/255, blue: 7/255) : Theme.ink2)
+                        .foregroundStyle(Theme.ink2)
                         .padding(.horizontal, 7).padding(.vertical, 2)
                         .background(
                             RoundedRectangle(cornerRadius: 7)
-                                .fill(boosted ? AnyShapeStyle(Theme.goldButton) : AnyShapeStyle(Color.white.opacity(0.05)))
+                                .fill(Theme.surface)
                         )
                 }
                 GlassSlider(value: Binding(get: { liveVolume }, set: { manager.setVolume($0, for: app) }),
@@ -842,10 +810,10 @@ struct AddMenuRow: View {
                 .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                 Text(item.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.ink).lineLimit(1)
                 Spacer(minLength: 6)
-                Image(systemName: "plus").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.gold)
+                Image(systemName: "plus").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.accent)
             }
             .padding(.horizontal, 8).padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 9).fill(hover ? Color.white.opacity(0.08) : Color.clear))
+            .background(RoundedRectangle(cornerRadius: 9).fill(hover ? Theme.surfaceHover : Color.clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -865,17 +833,17 @@ struct OutputDeviceRow: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: selected ? "speaker.wave.2.fill" : "speaker.wave.2")
-                    .font(.system(size: 14)).foregroundStyle(selected ? Theme.teal2 : Theme.ink2)
+                    .font(.system(size: 14)).foregroundStyle(selected ? Theme.accent : Theme.ink2)
                     .frame(width: 24)
                 Text(device.name).font(.system(size: 13, weight: selected ? .semibold : .medium))
                     .foregroundStyle(Theme.ink).lineLimit(1)
                 Spacer(minLength: 6)
                 if selected {
-                    Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.teal2)
+                    Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
                 }
             }
             .padding(.horizontal, 8).padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 9).fill(hover ? Color.white.opacity(0.08) : Color.clear))
+            .background(RoundedRectangle(cornerRadius: 9).fill(hover ? Theme.surfaceHover : Color.clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
